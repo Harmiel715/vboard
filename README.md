@@ -1,17 +1,18 @@
-# MutterBoard (formerly vboard)
+# MutterBoard
 
-更接近原生硬件键盘行为的 Wayland 屏幕键盘（当前仍保持与原项目一致的可用范围：非 wlroots 场景）。
+更接近原生硬件键盘行为的 Wayland 屏幕键盘（当前仍保持非 wlroots 场景范围）。
 
 ## 本次重点
 - 组合键行为重做为“接近硬件键盘”模型：
-  - 修饰键按下会发送 key-down，释放会发送 key-up。
+  - 修饰键按下发送 key-down，释放发送 key-up。
   - 支持任意组合传递到焦点窗口（如 `Ctrl+C` / `Ctrl+V`）。
-- 支持粘滞修饰键（单击锁定，下一次输入后自动释放），兼容单指操作。
-- 支持 Shift 双击触发快捷键（默认 `LEFTSHIFT,SPACE`，可改）。
-- 支持长按连发（含首次延迟和重复周期）。
-- Shift 激活时，符号键位会动态显示为转换后的字符（如 `1 -> !`）。
-- 外观优化：圆角、分层背景、键位高亮、更清晰的视觉反馈。
-- 增加可拖动手柄，窗口拖动更方便。
+- 支持粘滞修饰键（单击锁定，下一次输入后自动释放），并保留 Shift 双击快捷键。
+- 新增 CapsLock 状态提示（`Caps: On/Off`），方便随时确认是否大写锁定。
+- 修复快速连续点按场景（例如上一键未完全释放时按下一键）导致漏字母的问题。
+- Shift 激活时，符号键位动态显示转换字符（如 `1 -> !`）。
+- 主题系统重做（Dark / Light / Midnight），提升深浅色对比和可读性。
+- 新增字体大小调节（A+ / A-），可按个人视觉习惯调整。
+- 界面贴边优化：移除额外拖动条，减少多余空隙，主体内容更贴近窗口边界。
 
 ## 兼容性说明（保持原硬限制）
 - 仍保持原脚本可用范围，不主动扩展到 wlroots。
@@ -27,21 +28,16 @@ python3 mutterboard.py
 python3 vboard.py
 ```
 
-## 依赖
-请按发行版安装对应包（命名可能不同）：
-- `python3-gi`
-- `python3-uinput` / `python-uinput`
-- `steam-devices`（某些发行版环境需要）
-
 ## 配置
 配置文件：`~/.config/mutterboard/settings.conf`
 
 示例：
 ```ini
 [DEFAULT]
-bg_color = 18,18,21
-opacity = 0.94
-text_color = #F5F5F7
+theme = Dark
+opacity = 0.96
+font_size = 15
+capslock_on = false
 double_shift_shortcut = LEFTSHIFT,SPACE
 ```
 
@@ -52,3 +48,9 @@ double_shift_shortcut = LEFTSHIFT,SPACE
 ## 备注
 - 当前布局仍以 US QWERTY 为主。
 - 后续若要扩展 compositor 兼容范围，可以在此版本基础上继续推进。
+
+
+## 项目关系
+MutterBoard 现作为独立项目继续维护，不再作为 fork 网络中的延续分支。
+
+特别感谢原始项目 **vboard** 提供的基础思路与早期实现。

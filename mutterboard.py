@@ -10,7 +10,7 @@ import uinput
 os.environ.setdefault("GDK_BACKEND", "x11")
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gdk, Gtk
+from gi.repository import GLib, Gtk
 
 
 KEY_MAPPING: Dict[int, str] = {
@@ -145,6 +145,30 @@ CONFIG_TOKEN_ALIASES = {
     "WIN": "LEFTMETA",
 }
 
+THEMES = {
+    "Dark": {
+        "bg": "22,23,28",
+        "key": "54,56,66",
+        "key_border": "112,115,132",
+        "accent": "102,163,255",
+        "text": "#F4F6FF",
+    },
+    "Light": {
+        "bg": "245,246,250",
+        "key": "255,255,255",
+        "key_border": "178,186,204",
+        "accent": "66,108,235",
+        "text": "#151822",
+    },
+    "Midnight": {
+        "bg": "15,18,32",
+        "key": "36,44,75",
+        "key_border": "89,101,150",
+        "accent": "121,205,255",
+        "text": "#EAF6FF",
+    },
+}
+
 
 @dataclass
 class RepeatState:
@@ -165,11 +189,11 @@ class KeyboardEngine:
         self.down_keys: Set[int] = set()
 
     def set_key_state(self, key_code: int, pressed: bool) -> None:
-        currently_down = key_code in self.down_keys
-        if pressed and not currently_down:
+        is_down = key_code in self.down_keys
+        if pressed and not is_down:
             self.device.emit(key_code, 1)
             self.down_keys.add(key_code)
-        elif not pressed and currently_down:
+        elif not pressed and is_down:
             self.device.emit(key_code, 0)
             self.down_keys.discard(key_code)
 
@@ -194,26 +218,24 @@ class MutterBoard(Gtk.Window):
         self.last_shift_tap_at = 0.0
         self.double_shift_timeout_ms = 380
         self.double_shift_shortcut = [uinput.KEY_LEFTSHIFT, uinput.KEY_SPACE]
+        self.capslock_on = False
 
-        self.colors = [
-            ("Black", "18,18,21"), ("Blue", "32,53,97"), ("Purple", "74,45,108"), ("Gray", "44,44,52"),
-            ("Green", "23,82,67"), ("Orange", "144,83,26"), ("Red", "123,38,45"), ("White", "235,235,238"),
-        ]
-        self.bg_color = "18,18,21"
-        self.opacity = "0.94"
-        self.text_color = "#F5F5F7"
+        self.theme_name = "Dark"
+        self.opacity = "0.96"
+        self.font_size = 15
         self.width = 0
         self.height = 0
 
         self._load_settings()
         self._build_ui()
+        self._update_caps_indicator()
         self.apply_css()
 
         self.connect("configure-event", self.on_resize)
         self.connect("destroy", lambda _: self.save_settings())
 
     def _configure_window(self) -> None:
-        self.set_border_width(6)
+        self.set_border_width(0)
         self.set_resizable(True)
         self.set_keep_above(True)
         self.set_focus_on_map(False)
@@ -227,15 +249,14 @@ class MutterBoard(Gtk.Window):
         self.config = configparser.ConfigParser()
 
     def _build_ui(self) -> None:
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         root.set_name("root")
         self.add(root)
 
-        self._build_header(root)
-        self._build_drag_handle(root)
+        self._build_header()
         self._build_keyboard(root)
 
-    def _build_header(self, parent: Gtk.Box) -> None:
+    def _build_header(self) -> None:
         self.header = Gtk.HeaderBar()
         self.header.set_show_close_button(True)
         self.header.set_decoration_layout(":minimize,maximize,close")
@@ -246,32 +267,28 @@ class MutterBoard(Gtk.Window):
         self._create_header_button("+", self.change_opacity, True)
         self._create_header_button("-", self.change_opacity, False)
         self.opacity_btn = self._create_header_button(self.opacity)
+        self._create_header_button("A+", self.change_font_size, 1)
+        self._create_header_button("A-", self.change_font_size, -1)
+        self.font_btn = self._create_header_button(f"{self.font_size}px")
+        self.caps_btn = self._create_header_button("Caps: Off")
+        self.caps_btn.set_sensitive(False)
 
-        self.color_combobox = Gtk.ComboBoxText()
-        self.color_combobox.append_text("Theme")
-        for label, _ in self.colors:
-            self.color_combobox.append_text(label)
-        self.color_combobox.set_active(0)
-        self.color_combobox.set_name("combobox")
-        self.color_combobox.connect("changed", self.change_color)
-        self.header.add(self.color_combobox)
-
-    def _build_drag_handle(self, parent: Gtk.Box) -> None:
-        self.drag_handle = Gtk.EventBox()
-        self.drag_handle.set_name("drag-handle")
-        self.drag_handle.set_visible_window(True)
-        self.drag_handle.set_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        drag_label = Gtk.Label(label="⋮⋮  Drag")
-        drag_label.set_name("drag-label")
-        self.drag_handle.add(drag_label)
-        self.drag_handle.connect("button-press-event", self.on_drag_press)
-        parent.pack_start(self.drag_handle, False, False, 0)
+        self.theme_combobox = Gtk.ComboBoxText()
+        self.theme_combobox.append_text("Theme")
+        for name in THEMES:
+            self.theme_combobox.append_text(name)
+        self.theme_combobox.set_active(0)
+        if self.theme_name in THEMES:
+            self.theme_combobox.set_active(list(THEMES.keys()).index(self.theme_name) + 1)
+        self.theme_combobox.set_name("combobox")
+        self.theme_combobox.connect("changed", self.change_theme)
+        self.header.add(self.theme_combobox)
 
     def _build_keyboard(self, parent: Gtk.Box) -> None:
         grid = Gtk.Grid()
         grid.set_name("grid")
-        grid.set_row_spacing(4)
-        grid.set_column_spacing(4)
+        grid.set_row_spacing(2)
+        grid.set_column_spacing(2)
         grid.set_row_homogeneous(True)
         grid.set_column_homogeneous(True)
         parent.pack_start(grid, True, True, 0)
@@ -285,7 +302,6 @@ class MutterBoard(Gtk.Window):
                 button.set_name("key")
                 button.connect("pressed", self.on_button_press, key_code)
                 button.connect("released", self.on_button_release, key_code)
-                button.connect("leave-notify-event", self.on_button_leave, key_code)
 
                 width = KEY_WIDTHS.get(label, 2)
                 grid.attach(button, col, row_index, width, 1)
@@ -308,53 +324,54 @@ class MutterBoard(Gtk.Window):
         self.settings_buttons.append(button)
         return button
 
+    def _theme(self) -> Dict[str, str]:
+        return THEMES.get(self.theme_name, THEMES["Dark"])
+
     def apply_css(self) -> None:
+        theme = self._theme()
         provider = Gtk.CssProvider()
         css = f"""
-        #toplevel {{ background: transparent; }}
-        #root {{
-            background-color: rgba({self.bg_color}, {self.opacity});
-            border-radius: 12px;
-            padding: 4px;
-        }}
-        #drag-handle {{
-            background-color: rgba(255,255,255,0.07);
-            border-radius: 8px;
-            padding: 4px;
-        }}
-        #drag-label {{ color: {self.text_color}; font-size: 12px; }}
+        #toplevel {{ background-color: rgba({theme['bg']}, {self.opacity}); }}
+        #root {{ background-color: rgba({theme['bg']}, {self.opacity}); margin: 0; padding: 0; }}
         headerbar {{
-            background-color: rgba({self.bg_color}, {self.opacity});
+            background-color: rgba({theme['bg']}, {self.opacity});
             border: 0;
             box-shadow: none;
+            min-height: 42px;
         }}
-        headerbar button label, #combobox button.combo label {{ color: {self.text_color}; }}
+        headerbar button label, #combobox button.combo label {{
+            color: {theme['text']};
+            font-size: {max(self.font_size - 2, 10)}px;
+        }}
+        #grid {{ margin: 0; padding: 0; }}
         #key {{
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            border: 1px solid rgba({theme['key_border']}, 0.9);
             background-image: none;
-            background-color: rgba(255,255,255,0.08);
-            min-height: 44px;
+            background-color: rgba({theme['key']}, 0.88);
+            min-height: 42px;
+            margin: 0;
+            padding: 0;
         }}
-        #key:hover {{ border-color: rgba(0,202,203,0.95); }}
-        #key label {{ color: {self.text_color}; font-weight: 600; }}
+        #key:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
+        #key label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
         #key.pressed {{
-            background-color: rgba(0,202,203,0.3);
-            border-color: rgba(0,202,203,0.95);
+            background-color: rgba({theme['accent']}, 0.35);
+            border-color: rgba({theme['accent']}, 1.0);
+        }}
+        #headbar-button.caps-on label {{
+            color: rgba({theme['accent']}, 1.0);
+            font-weight: 700;
         }}
         """
         provider.load_from_data(css.encode("utf-8"))
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
-    def on_drag_press(self, _widget, event) -> None:
-        if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 1:
-            self.begin_move_drag(event.button, int(event.x_root), int(event.y_root), event.time)
-
     def toggle_controls(self, _button=None) -> None:
         for button in self.settings_buttons:
             if button.get_label() != "☰":
                 button.set_visible(not button.get_visible())
-        self.color_combobox.set_visible(not self.color_combobox.get_visible())
+        self.theme_combobox.set_visible(not self.theme_combobox.get_visible())
 
     def change_opacity(self, _button, increase: bool) -> None:
         delta = 0.02 if increase else -0.02
@@ -362,26 +379,41 @@ class MutterBoard(Gtk.Window):
         self.opacity_btn.set_label(self.opacity)
         self.apply_css()
 
-    def change_color(self, _widget) -> None:
-        selected = self.color_combobox.get_active_text()
-        for name, color in self.colors:
-            if name == selected:
-                self.bg_color = color
-                break
-        light_bg = self.bg_color in {"235,235,238"}
-        self.text_color = "#18181A" if light_bg else "#F5F5F7"
+    def change_font_size(self, _button, delta: int) -> None:
+        self.font_size = min(24, max(10, self.font_size + delta))
+        self.font_btn.set_label(f"{self.font_size}px")
         self.apply_css()
+
+    def change_theme(self, _widget) -> None:
+        selected = self.theme_combobox.get_active_text()
+        if selected in THEMES:
+            self.theme_name = selected
+            self.apply_css()
+
+    def _update_caps_indicator(self) -> None:
+        self.caps_btn.set_label("Caps: On" if self.capslock_on else "Caps: Off")
+        style = self.caps_btn.get_style_context()
+        if self.capslock_on:
+            style.add_class("caps-on")
+        else:
+            style.remove_class("caps-on")
 
     def on_button_press(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.add(key_code)
         self._paint_pressed(widget, True)
+
+        if key_code == uinput.KEY_CAPSLOCK:
+            self.capslock_on = not self.capslock_on
+            self.engine.tap_key(uinput.KEY_CAPSLOCK)
+            self._update_caps_indicator()
+            return
 
         if key_code in MODIFIER_KEYS:
             self._on_modifier_press(key_code)
             self._update_shift_labels()
             return
 
-        for mod_code, state in self.modifiers.items():
+        for state in self.modifiers.values():
             if state.pressed:
                 state.used_in_combo = True
 
@@ -392,6 +424,9 @@ class MutterBoard(Gtk.Window):
         self.active_keys.discard(key_code)
         self._paint_pressed(widget, False)
 
+        if key_code == uinput.KEY_CAPSLOCK:
+            return
+
         if key_code in MODIFIER_KEYS:
             self._on_modifier_release(key_code)
             self._update_shift_labels()
@@ -399,13 +434,8 @@ class MutterBoard(Gtk.Window):
 
         self._cancel_repeat(key_code)
         self.engine.set_key_state(key_code, False)
-
         self._release_one_shot_modifiers()
         self._update_shift_labels()
-
-    def on_button_leave(self, widget: Gtk.Button, _event, key_code: int) -> None:
-        if key_code in self.active_keys:
-            self.on_button_release(widget, key_code)
 
     def _on_modifier_press(self, key_code: int) -> None:
         state = self.modifiers[key_code]
@@ -430,7 +460,6 @@ class MutterBoard(Gtk.Window):
             state.used_in_combo = False
             return
 
-        # No combo happened while pressed -> toggle sticky(latched) state.
         if state.latched:
             state.latched = False
             self.engine.set_key_state(key_code, False)
@@ -452,14 +481,12 @@ class MutterBoard(Gtk.Window):
     def _handle_shift_double_tap(self) -> None:
         now = time.monotonic()
         elapsed_ms = (now - self.last_shift_tap_at) * 1000
-
         if self.last_shift_tap_at > 0 and elapsed_ms <= self.double_shift_timeout_ms:
             for shift_key in SHIFT_KEYS:
                 self._force_release_modifier(shift_key)
             self._emit_shortcut(self.double_shift_shortcut)
             self.last_shift_tap_at = 0.0
             return
-
         self.last_shift_tap_at = now
 
     def _emit_shortcut(self, combo: List[int]) -> None:
@@ -468,14 +495,12 @@ class MutterBoard(Gtk.Window):
 
         for key in mods:
             self.engine.set_key_state(key, True)
-
         if normals:
             for key in normals:
                 self.engine.tap_key(key)
         else:
             for key in mods:
                 self.engine.tap_key(key)
-
         for key in reversed(mods):
             self.engine.set_key_state(key, False)
 
@@ -500,7 +525,7 @@ class MutterBoard(Gtk.Window):
             style.remove_class("pressed")
 
     def _update_shift_labels(self) -> None:
-        shift_active = any(self.modifiers[key].pressed or self.modifiers[key].latched for key in SHIFT_KEYS)
+        shift_active = any(self.modifiers[k].pressed or self.modifiers[k].latched for k in SHIFT_KEYS)
         for plain, symbol in SYMBOL_LABELS.items():
             button = self.regular_buttons.get(plain)
             if button is not None:
@@ -526,7 +551,6 @@ class MutterBoard(Gtk.Window):
         if key_code not in self.active_keys:
             self._cancel_repeat(key_code)
             return False
-
         self.engine.tap_key(key_code)
         return True
 
@@ -538,30 +562,6 @@ class MutterBoard(Gtk.Window):
             GLib.source_remove(state.delay_source)
         if state.repeat_source:
             GLib.source_remove(state.repeat_source)
-
-    def _load_settings(self) -> None:
-        try:
-            os.makedirs(self.config_dir, exist_ok=True)
-        except PermissionError:
-            return
-
-        if not os.path.exists(self.config_file):
-            return
-
-        try:
-            self.config.read(self.config_file)
-            self.bg_color = self.config.get("DEFAULT", "bg_color", fallback=self.bg_color)
-            self.opacity = self.config.get("DEFAULT", "opacity", fallback=self.opacity)
-            self.text_color = self.config.get("DEFAULT", "text_color", fallback=self.text_color)
-            self.width = self.config.getint("DEFAULT", "width", fallback=0)
-            self.height = self.config.getint("DEFAULT", "height", fallback=0)
-            shortcut = self.config.get("DEFAULT", "double_shift_shortcut", fallback="LEFTSHIFT,SPACE")
-            self.double_shift_shortcut = self._parse_shortcut(shortcut)
-        except configparser.Error:
-            return
-
-        if self.width > 0 and self.height > 0:
-            self.set_default_size(self.width, self.height)
 
     def _parse_shortcut(self, raw: str) -> List[int]:
         result: List[int] = []
@@ -587,14 +587,41 @@ class MutterBoard(Gtk.Window):
         }
         return ",".join(name_map.get(key, str(key)) for key in combo)
 
+    def _load_settings(self) -> None:
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+        except PermissionError:
+            return
+
+        if not os.path.exists(self.config_file):
+            return
+
+        try:
+            self.config.read(self.config_file)
+            self.theme_name = self.config.get("DEFAULT", "theme", fallback=self.theme_name)
+            self.opacity = self.config.get("DEFAULT", "opacity", fallback=self.opacity)
+            self.font_size = self.config.getint("DEFAULT", "font_size", fallback=self.font_size)
+            self.capslock_on = self.config.getboolean("DEFAULT", "capslock_on", fallback=self.capslock_on)
+            self.width = self.config.getint("DEFAULT", "width", fallback=0)
+            self.height = self.config.getint("DEFAULT", "height", fallback=0)
+            shortcut = self.config.get("DEFAULT", "double_shift_shortcut", fallback="LEFTSHIFT,SPACE")
+            self.double_shift_shortcut = self._parse_shortcut(shortcut)
+        except configparser.Error:
+            return
+
+        self.font_size = min(24, max(10, self.font_size))
+        if self.width > 0 and self.height > 0:
+            self.set_default_size(self.width, self.height)
+
     def on_resize(self, *_args) -> None:
         self.width, self.height = self.get_size()
 
     def save_settings(self) -> None:
         self.config["DEFAULT"] = {
-            "bg_color": self.bg_color,
+            "theme": self.theme_name,
             "opacity": self.opacity,
-            "text_color": self.text_color,
+            "font_size": str(self.font_size),
+            "capslock_on": str(self.capslock_on),
             "width": str(self.width),
             "height": str(self.height),
             "double_shift_shortcut": self._shortcut_to_config(self.double_shift_shortcut),
