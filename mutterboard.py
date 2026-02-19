@@ -10,7 +10,8 @@ import uinput
 os.environ.setdefault("GDK_BACKEND", "x11")
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402  # Imported after gi.require_version / 在 gi.require_version 之后导入
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk
 
 
 KEY_MAPPING: Dict[int, str] = {
@@ -83,7 +84,6 @@ KEY_MAPPING: Dict[int, str] = {
     uinput.KEY_END: "End",
 }
 
-# Reverse lookup for UI label -> linux key code / UI 标签到 Linux 键码的反向映射
 LABEL_TO_KEY = {label: code for code, label in KEY_MAPPING.items()}
 MODIFIER_KEYS = {
     uinput.KEY_LEFTSHIFT,
@@ -140,7 +140,6 @@ SYMBOL_LABELS = {
     "/": "?",
 }
 
-# Friendly config tokens accepted in settings.conf / settings.conf 中接受的简写别名
 CONFIG_TOKEN_ALIASES = {
     "SHIFT": "LEFTSHIFT",
     "CTRL": "LEFTCTRL",
@@ -190,9 +189,7 @@ class ModifierState:
 
 class KeyboardEngine:
     def __init__(self) -> None:
-        # Create one virtual input device with all supported keys / 创建包含全部支持键位的虚拟输入设备
         self.device = uinput.Device(list(KEY_MAPPING.keys()))
-        # Track currently held keys to avoid duplicate press/release / 跟踪当前按下键，避免重复按下或抬起
         self.down_keys: Set[int] = set()
 
     def set_key_state(self, key_code: int, pressed: bool) -> None:
@@ -216,7 +213,6 @@ class MutterBoard(Gtk.Window):
         self._configure_storage()
 
         self.engine = KeyboardEngine()
-        # Runtime key-state containers / 运行期按键状态容器
         self.modifiers: Dict[int, ModifierState] = {key: ModifierState() for key in MODIFIER_KEYS}
         self.modifier_buttons: Dict[int, Gtk.Button] = {}
         self.regular_buttons: Dict[str, Gtk.Button] = {}
@@ -224,8 +220,7 @@ class MutterBoard(Gtk.Window):
         self.active_keys: Set[int] = set()
         self.space_button: Optional[Gtk.Button] = None
         self.space_button_default_label = "Space"
-        self.caps_indicator_label: Optional[Gtk.Label] = None
-        self.caps_sync_source: Optional[int] = None
+        self.caps_indicator_button: Optional[Gtk.Button] = None
 
         self.space_long_press_ms = 300
         self.space_cursor_mode = False
@@ -236,7 +231,6 @@ class MutterBoard(Gtk.Window):
         self.space_accum_x = 0.0
         self.space_accum_y = 0.0
 
-        # Double-Shift shortcut state / Shift 双击快捷键状态
         self.last_shift_tap_at = 0.0
         self.double_shift_timeout_ms = 380
         self.double_shift_shortcut_enabled = True
@@ -251,8 +245,7 @@ class MutterBoard(Gtk.Window):
 
         self._load_settings()
         self._build_ui()
-        self._setup_capslock_sync()
-        self._sync_capslock_from_system()
+        self._update_caps_indicator()
         self.apply_css()
 
         self.connect("configure-event", self.on_resize)
@@ -263,7 +256,6 @@ class MutterBoard(Gtk.Window):
         self.set_resizable(True)
         self.set_keep_above(True)
         self.stick()
-        # Keep normal window type so minimize/maximize controls are consistently available.
         self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
         self.set_decorated(True)
         self.set_skip_taskbar_hint(False)
@@ -293,7 +285,10 @@ class MutterBoard(Gtk.Window):
         self.header.set_decoration_layout(":minimize,maximize,close")
         self.set_titlebar(self.header)
 
-        self.settings_buttons: List[Gtk.Button] = []
+        self.settings_buttons: List[Gtk.Widget] = []
+        self.header_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.header.pack_start(self.header_controls)
+
         self._create_header_button("☰", self.toggle_controls)
         self._create_header_button("+", self.change_opacity, True)
         self._create_header_button("-", self.change_opacity, False)
@@ -301,6 +296,14 @@ class MutterBoard(Gtk.Window):
         self._create_header_button("A+", self.change_font_size, 1)
         self._create_header_button("A-", self.change_font_size, -1)
         self.font_btn = self._create_header_button(f"{self.font_size}px")
+
+        # CapsLock 指示器按钮
+        self.caps_indicator_button = Gtk.Button(label="Caps: Off")
+        self.caps_indicator_button.set_name("caps-indicator")
+        self.caps_indicator_button.set_can_focus(False)
+        self.caps_indicator_button.set_focus_on_click(False)
+        self.caps_indicator_button.set_sensitive(False)  # 不可点击，仅用于显示
+        self.header_controls.pack_start(self.caps_indicator_button, False, False, 0)
 
         self.theme_combobox = Gtk.ComboBoxText()
         self.theme_combobox.append_text("Theme")
@@ -311,15 +314,7 @@ class MutterBoard(Gtk.Window):
             self.theme_combobox.set_active(list(THEMES.keys()).index(self.theme_name) + 1)
         self.theme_combobox.set_name("combobox")
         self.theme_combobox.connect("changed", self.change_theme)
-        self.header.add(self.theme_combobox)
-
-        # Always-visible CapsLock indicator in header; not part of collapsible controls.
-        self.caps_indicator_label = Gtk.Label(label="Caps: Off")
-        self.caps_indicator_label.set_name("caps-indicator")
-        self.caps_indicator_label.set_halign(Gtk.Align.END)
-        self.caps_indicator_label.set_valign(Gtk.Align.CENTER)
-        self.caps_indicator_label.set_hexpand(False)
-        self.header.pack_end(self.caps_indicator_label)
+        self.header_controls.pack_start(self.theme_combobox, False, False, 0)
 
     def _build_keyboard(self, parent: Gtk.Box) -> None:
         grid = Gtk.Grid()
@@ -330,7 +325,6 @@ class MutterBoard(Gtk.Window):
         grid.set_column_homogeneous(True)
         parent.pack_start(grid, True, True, 0)
 
-        # Normalize every row width to keep alignment / 归一化每一行宽度以保持对齐
         row_widths = [sum(KEY_WIDTHS.get(label, 2) for label in row) for row in DEFAULT_LAYOUT]
         target_width = max(row_widths)
 
@@ -349,7 +343,6 @@ class MutterBoard(Gtk.Window):
                 button.connect("released", self.on_button_release, key_code)
 
                 if key_code == uinput.KEY_SPACE:
-                    # Space key also receives pointer motion for cursor mode / Space 键额外接收指针移动用于光标模式
                     self.space_button = button
                     self.space_button_default_label = shown
                     button.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
@@ -373,38 +366,6 @@ class MutterBoard(Gtk.Window):
             deficit -= 1
         return widths
 
-    def _setup_capslock_sync(self) -> None:
-        self.keymap = Gdk.Keymap.get_default()
-        if self.keymap is not None:
-            self.keymap.connect("state-changed", self._on_keymap_state_changed)
-
-    def _on_keymap_state_changed(self, _keymap: Gdk.Keymap) -> None:
-        self._sync_capslock_from_system()
-
-    def _sync_capslock_from_system(self) -> bool:
-        if getattr(self, "keymap", None) is None:
-            return False
-        self.capslock_on = self.keymap.get_caps_lock_state()
-        self._update_caps_indicator()
-        return False
-
-    def _schedule_capslock_sync(self, expected_previous: bool) -> None:
-        if self.caps_sync_source is not None:
-            GLib.source_remove(self.caps_sync_source)
-            self.caps_sync_source = None
-
-        attempts = {"count": 0}
-
-        def _poll() -> bool:
-            self._sync_capslock_from_system()
-            attempts["count"] += 1
-            if self.capslock_on != expected_previous or attempts["count"] >= 12:
-                self.caps_sync_source = None
-                return False
-            return True
-
-        self.caps_sync_source = GLib.timeout_add(60, _poll)
-
     def _create_header_button(self, label: str, callback=None, callback_arg=None) -> Gtk.Button:
         button = Gtk.Button(label=label)
         button.set_name("headbar-button")
@@ -413,7 +374,7 @@ class MutterBoard(Gtk.Window):
                 button.connect("clicked", callback)
             else:
                 button.connect("clicked", callback, callback_arg)
-        self.header.add(button)
+        self.header_controls.pack_start(button, False, False, 0)
         self.settings_buttons.append(button)
         return button
 
@@ -422,33 +383,41 @@ class MutterBoard(Gtk.Window):
 
     def apply_css(self) -> None:
         theme = self._theme()
+        self.set_opacity(float(self.opacity))
         provider = Gtk.CssProvider()
         css = f"""
-        #toplevel {{ background-color: rgba({theme['bg']}, {self.opacity}); }}
-        #root {{ background-color: rgba({theme['bg']}, {self.opacity}); margin: 0; padding: 0; }}
+        #toplevel {{ background-color: rgb({theme['bg']}); }}
+        #root {{ background-color: rgb({theme['bg']}); margin: 0; padding: 0; }}
         headerbar {{
-            background-color: rgba({theme['bg']}, {self.opacity});
+            background-color: rgb({theme['bg']});
             border: 0;
             box-shadow: none;
             min-height: 54px;
         }}
         headerbar button {{
             background-image: none;
-            background-color: rgba({theme['key']}, 0.72);
-            border: 1px solid rgba({theme['key_border']}, 0.88);
+            background-color: rgb({theme['key']});
+            border: 1px solid rgb({theme['key_border']});
             min-height: 46px;
             min-width: 52px;
             border-radius: 8px;
+            margin: 4px 0;  /* 垂直居中，避免贴顶 */
+        }}
+        /* 不可用按钮（如 Caps 指示器）样式与普通按钮一致 */
+        headerbar button:disabled {{
+            background-image: none;
+            background-color: rgb({theme['key']});
+            border: 1px solid rgb({theme['key_border']});
         }}
         headerbar .titlebutton {{
             min-width: 56px;
             min-height: 46px;
-            background-color: rgba({theme['key']}, 0.72);
+            background-color: rgb({theme['key']});
         }}
         #combobox button.combo {{
             background-image: none;
-            background-color: rgba({theme['key']}, 0.72);
-            border: 1px solid rgba({theme['key_border']}, 0.88);
+            background-color: rgb({theme['key']});
+            border: 1px solid rgb({theme['key_border']});
             min-height: 46px;
             min-width: 90px;
             border-radius: 8px;
@@ -471,9 +440,9 @@ class MutterBoard(Gtk.Window):
         button.key-button:active,
         .key-button:backdrop {{
             border-radius: 8px;
-            border: 1px solid rgba({theme['key_border']}, 0.9);
+            border: 1px solid rgb({theme['key_border']});
             background-image: none;
-            background-color: rgba({theme['key']}, 0.82);
+            background-color: rgb({theme['key']});
             box-shadow: none;
             outline: none;
             min-height: 48px;
@@ -481,15 +450,27 @@ class MutterBoard(Gtk.Window):
             padding: 0;
         }}
         .key-button label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
+        /* CapsLock 指示器按钮样式，与 header 其他按钮一致 */
         #caps-indicator {{
-            background: transparent;
+            background-image: none;
+            background-color: rgb({theme['key']});
+            border: 1px solid rgb({theme['key_border']});
+            border-radius: 8px;
+            min-height: 46px;
+            min-width: 85px;          /* 宽度适配文本 */
+            margin: 4px 0;             /* 与普通按钮一致 */
+            padding: 0 8px;
             color: {theme['text']};
             font-size: {max(self.font_size - 2, 11)}px;
             font-weight: 700;
-            padding: 0 8px;
-            margin: 0;
         }}
-        #caps-indicator.on {{ color: rgba({theme['accent']}, 1.0); }}
+        /* CapsLock 开启时的蓝色文字 */
+        #caps-indicator.caps-on {{
+            color: rgba({theme['accent']}, 1.0);
+        }}
+        #caps-indicator.caps-on label {{
+            color: rgba({theme['accent']}, 1.0);
+        }}
         .key-button.pressed,
         .key-button.pressed:hover,
         .key-button.pressed:focus,
@@ -510,9 +491,8 @@ class MutterBoard(Gtk.Window):
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
     def toggle_controls(self, _button=None) -> None:
-        for button in self.settings_buttons:
-            if button.get_label() != "☰":
-                button.set_visible(not button.get_visible())
+        for button in self.settings_buttons[1:]:
+            button.set_visible(not button.get_visible())
         self.theme_combobox.set_visible(not self.theme_combobox.get_visible())
 
     def change_opacity(self, _button, increase: bool) -> None:
@@ -533,27 +513,23 @@ class MutterBoard(Gtk.Window):
             self.apply_css()
 
     def _update_caps_indicator(self) -> None:
-        indicator = self.caps_indicator_label
-        if indicator is None:
+        if self.caps_indicator_button is None:
             return
-        indicator.set_text("Caps: On" if self.capslock_on else "Caps: Off")
-        style = indicator.get_style_context()
+        self.caps_indicator_button.set_label("Caps: On" if self.capslock_on else "Caps: Off")
+        style = self.caps_indicator_button.get_style_context()
         if self.capslock_on:
-            style.add_class("on")
+            style.add_class("caps-on")
         else:
-            style.remove_class("on")
+            style.remove_class("caps-on")
 
     def on_button_press(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.add(key_code)
 
         if key_code == uinput.KEY_CAPSLOCK:
             self._flash_regular_key(widget)
-            # Optimistically flip local state for immediate visual response.
             self.capslock_on = not self.capslock_on
-            self._update_caps_indicator()
             self.engine.tap_key(uinput.KEY_CAPSLOCK)
-            # Poll keymap state for a short period to avoid transient indicator flicker.
-            self._schedule_capslock_sync(not self.capslock_on)
+            self._update_caps_indicator()
             return
 
         if key_code in MODIFIER_KEYS:
@@ -571,9 +547,6 @@ class MutterBoard(Gtk.Window):
             if state.pressed:
                 state.used_in_combo = True
 
-        # Emit normal key immediately on press. This is more robust on environments
-        # where touch is effectively single-pointer (common under XWayland), because
-        # output no longer depends on receiving a second concurrent touch release.
         self._flash_regular_key(widget)
         self.engine.tap_key(key_code)
         self._start_repeat(key_code)
@@ -713,7 +686,6 @@ class MutterBoard(Gtk.Window):
             return
         self._cancel_repeat(key_code)
         state = RepeatState()
-        # Delay before first repeat, then switch to fixed repeat tick / 首次连发前延迟，然后进入固定节拍连发
         state.delay_source = GLib.timeout_add(420, self._repeat_delay_done, key_code)
         self.repeat_states[key_code] = state
 
@@ -742,7 +714,6 @@ class MutterBoard(Gtk.Window):
             GLib.source_remove(state.repeat_source)
 
     def _begin_space_tracking(self) -> None:
-        # Long-press Space enters cursor mode, short tap sends space / 长按 Space 进入光标模式，短按发送空格
         self._cancel_space_long_press()
         self.space_cursor_mode = False
         self._set_space_cursor_visual(False)
@@ -813,7 +784,6 @@ class MutterBoard(Gtk.Window):
         return True
 
     def _emit_cursor_moves(self, step_threshold: float) -> None:
-        # Use dominant axis to reduce accidental diagonal noise / 使用主导轴减少对角误触
         if abs(self.space_accum_x) >= abs(self.space_accum_y):
             steps = int(abs(self.space_accum_x) / step_threshold)
             if steps > 0:
@@ -844,7 +814,6 @@ class MutterBoard(Gtk.Window):
         return True
 
     def _parse_shortcut(self, raw: str) -> List[int]:
-        # Parse comma-separated tokens from config into uinput key codes / 将配置中的逗号分隔字符串解析为 uinput 键码
         result: List[int] = []
         for part in raw.split(","):
             token = part.strip().upper().replace("KEY_", "")
@@ -884,12 +853,12 @@ class MutterBoard(Gtk.Window):
             self.font_size = self.config.getint("DEFAULT", "font_size", fallback=self.font_size)
             self.width = self.config.getint("DEFAULT", "width", fallback=0)
             self.height = self.config.getint("DEFAULT", "height", fallback=0)
-            # Keep feature enabled by default unless explicitly disabled in config / 默认启用，除非配置中显式关闭
             self.double_shift_shortcut_enabled = self.config.getboolean(
                 "DEFAULT", "double_shift_shortcut_enabled", fallback=self.double_shift_shortcut_enabled
             )
             shortcut = self.config.get("DEFAULT", "double_shift_shortcut", fallback="LEFTSHIFT,SPACE")
             self.double_shift_shortcut = self._parse_shortcut(shortcut)
+            self.capslock_on = self.config.getboolean("DEFAULT", "capslock_on", fallback=self.capslock_on)
         except configparser.Error:
             return
 
@@ -909,6 +878,7 @@ class MutterBoard(Gtk.Window):
             "height": str(self.height),
             "double_shift_shortcut_enabled": str(self.double_shift_shortcut_enabled).lower(),
             "double_shift_shortcut": self._shortcut_to_config(self.double_shift_shortcut),
+            "capslock_on": str(self.capslock_on),
         }
         try:
             with open(self.config_file, "w", encoding="utf-8") as fp:
