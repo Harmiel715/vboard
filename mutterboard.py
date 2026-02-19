@@ -223,6 +223,7 @@ class MutterBoard(Gtk.Window):
         self.repeat_states: Dict[int, RepeatState] = {}
         self.active_keys: Set[int] = set()
         self.space_button: Optional[Gtk.Button] = None
+        self.space_button_default_label = "Space"
         self.caps_dot: Optional[Gtk.Widget] = None
 
         self.space_long_press_ms = 300
@@ -260,10 +261,16 @@ class MutterBoard(Gtk.Window):
         self.set_border_width(0)
         self.set_resizable(True)
         self.set_keep_above(True)
+        self.stick()
+        # Keep decorations (min/max/close) while still requesting an always-on-top utility window.
+        self.set_type_hint(Gdk.WindowTypeHint.UTILITY)
+        self.set_skip_taskbar_hint(False)
+        self.set_skip_pager_hint(False)
         self.set_focus_on_map(False)
         self.set_can_focus(False)
         self.set_accept_focus(False)
         self.set_default_icon_name("preferences-desktop-keyboard")
+        self.connect("realize", self._on_window_realize)
 
     def _configure_storage(self) -> None:
         self.config_dir = os.path.expanduser("~/.config/mutterboard")
@@ -325,12 +332,14 @@ class MutterBoard(Gtk.Window):
                 shown = label[:-2] if label.endswith("_L") or label.endswith("_R") else label
                 button = Gtk.Button(label=shown)
                 button.set_name("key")
+                button.get_style_context().add_class("key-button")
                 button.connect("pressed", self.on_button_press, key_code)
                 button.connect("released", self.on_button_release, key_code)
 
                 if key_code == uinput.KEY_SPACE:
                     # Space key also receives pointer motion for cursor mode / Space 键额外接收指针移动用于光标模式
                     self.space_button = button
+                    self.space_button_default_label = shown
                     button.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
                     button.connect("motion-notify-event", self.on_space_motion)
 
@@ -345,8 +354,10 @@ class MutterBoard(Gtk.Window):
                     dot.set_valign(Gtk.Align.START)
                     dot.set_margin_top(6)
                     dot.set_margin_end(6)
-                    dot.set_no_show_all(True)
+                    dot.connect("draw", self._draw_caps_indicator)
+                    dot.hide()
                     overlay.add_overlay(dot)
+                    overlay.get_style_context().add_class("key-overlay")
                     self.caps_dot = dot
                     attach_widget = overlay
 
@@ -412,8 +423,8 @@ class MutterBoard(Gtk.Window):
         }}
         headerbar button {{
             background-image: none;
-            background-color: rgba({theme['key']}, 0.95);
-            border: 1px solid rgba({theme['key_border']}, 0.95);
+            background-color: rgba({theme['key']}, 0.72);
+            border: 1px solid rgba({theme['key_border']}, 0.88);
             min-height: 46px;
             min-width: 52px;
             border-radius: 8px;
@@ -422,12 +433,12 @@ class MutterBoard(Gtk.Window):
         headerbar .titlebutton {{
             min-width: 56px;
             min-height: 46px;
-            background-color: rgba({theme['key']}, 0.95);
+            background-color: rgba({theme['key']}, 0.72);
         }}
         #combobox button.combo {{
             background-image: none;
-            background-color: rgba({theme['key']}, 0.95);
-            border: 1px solid rgba({theme['key_border']}, 0.95);
+            background-color: rgba({theme['key']}, 0.72);
+            border: 1px solid rgba({theme['key_border']}, 0.88);
             min-height: 46px;
             min-width: 90px;
             border-radius: 8px;
@@ -438,20 +449,31 @@ class MutterBoard(Gtk.Window):
             font-weight: 600;
         }}
         #grid {{ margin: 0; padding: 0; }}
-        #key {{
+        .key-button {{
             border-radius: 8px;
             border: 1px solid rgba({theme['key_border']}, 0.9);
             background-image: none;
-            background-color: rgba({theme['key']}, 0.88);
+            background-color: rgba({theme['key']}, 0.48);
             min-height: 48px;
             margin: 0;
             padding: 0;
         }}
-        #key:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
-        #key label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
-        #key.pressed {{
-            background-color: rgba({theme['accent']}, 0.35);
+        .key-overlay {{
+            background-color: transparent;
+        }}
+        .key-button:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
+        .key-button label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
+        .key-button.pressed {{
+            background-color: rgba({theme['accent']}, 0.28);
             border-color: rgba({theme['accent']}, 1.0);
+        }}
+        .key-button.cursor-mode {{
+            background-color: rgba({theme['accent']}, 0.24);
+            border-color: rgba({theme['accent']}, 1.0);
+        }}
+        .key-button.cursor-mode label {{
+            color: rgba({theme['accent']}, 1.0);
+            font-weight: 700;
         }}
         #caps-dot {{
             background-color: rgba({theme['accent']}, 1.0);
@@ -489,10 +511,16 @@ class MutterBoard(Gtk.Window):
     def _update_caps_indicator(self) -> None:
         if self.caps_dot is None:
             return
-        if self.capslock_on:
-            self.caps_dot.show()
-        else:
-            self.caps_dot.hide()
+        self.caps_dot.set_visible(self.capslock_on)
+        self.caps_dot.queue_draw()
+
+    def _draw_caps_indicator(self, area: Gtk.DrawingArea, cr) -> bool:
+        alloc = area.get_allocation()
+        radius = min(alloc.width, alloc.height) / 2
+        cr.set_source_rgba(0.28, 0.63, 1.0, 1.0)
+        cr.arc(alloc.width / 2, alloc.height / 2, radius, 0, 6.283185307179586)
+        cr.fill()
+        return False
 
     def on_button_press(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.add(key_code)
@@ -517,7 +545,10 @@ class MutterBoard(Gtk.Window):
             if state.pressed:
                 state.used_in_combo = True
 
-        self.engine.set_key_state(key_code, True)
+        # Emit normal key immediately on press. This is more robust on environments
+        # where touch is effectively single-pointer (common under XWayland), because
+        # output no longer depends on receiving a second concurrent touch release.
+        self.engine.tap_key(key_code)
         self._start_repeat(key_code)
 
     def on_button_release(self, widget: Gtk.Button, key_code: int) -> None:
@@ -539,7 +570,6 @@ class MutterBoard(Gtk.Window):
             return
 
         self._cancel_repeat(key_code)
-        self.engine.set_key_state(key_code, False)
         self._release_one_shot_modifiers()
         self._update_shift_labels()
 
@@ -678,6 +708,7 @@ class MutterBoard(Gtk.Window):
         # Long-press Space enters cursor mode, short tap sends space / 长按 Space 进入光标模式，短按发送空格
         self._cancel_space_long_press()
         self.space_cursor_mode = False
+        self._set_space_cursor_visual(False)
         self.space_accum_x = 0.0
         self.space_accum_y = 0.0
         self.space_last_motion_at = 0.0
@@ -687,6 +718,7 @@ class MutterBoard(Gtk.Window):
         moved = self.space_cursor_mode
         self._cancel_space_long_press()
         self.space_cursor_mode = False
+        self._set_space_cursor_visual(False)
         self.space_accum_x = 0.0
         self.space_accum_y = 0.0
         self.space_last_motion_at = 0.0
@@ -702,7 +734,19 @@ class MutterBoard(Gtk.Window):
         if uinput.KEY_SPACE not in self.active_keys:
             return False
         self.space_cursor_mode = True
+        self._set_space_cursor_visual(True)
         return False
+
+    def _set_space_cursor_visual(self, active: bool) -> None:
+        if self.space_button is None:
+            return
+        style = self.space_button.get_style_context()
+        if active:
+            self.space_button.set_label("◀ Space ▶")
+            style.add_class("cursor-mode")
+        else:
+            self.space_button.set_label(self.space_button_default_label)
+            style.remove_class("cursor-mode")
 
     def on_space_motion(self, _widget: Gtk.Button, event: Gdk.EventMotion) -> bool:
         if uinput.KEY_SPACE not in self.active_keys:
@@ -744,11 +788,23 @@ class MutterBoard(Gtk.Window):
         else:
             steps = int(abs(self.space_accum_y) / step_threshold)
             if steps > 0:
-                key = uinput.KEY_END if self.space_accum_y > 0 else uinput.KEY_HOME
+                key = uinput.KEY_DOWN if self.space_accum_y > 0 else uinput.KEY_UP
                 for _ in range(steps):
                     self.engine.tap_key(key)
                 self.space_accum_y -= step_threshold * steps if self.space_accum_y > 0 else -step_threshold * steps
                 self.space_accum_x = 0.0
+
+    def _on_window_realize(self, *_args) -> None:
+        self._raise_window_topmost()
+        GLib.timeout_add(1500, self._raise_window_topmost)
+
+    def _raise_window_topmost(self) -> bool:
+        self.set_keep_above(True)
+        self.stick()
+        gdk_window = self.get_window()
+        if gdk_window is not None:
+            gdk_window.raise_()
+        return True
 
     def _parse_shortcut(self, raw: str) -> List[int]:
         # Parse comma-separated tokens from config into uinput key codes / 将配置中的逗号分隔字符串解析为 uinput 键码
