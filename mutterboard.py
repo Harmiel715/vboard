@@ -293,6 +293,14 @@ class MutterBoard(Gtk.Window):
         self.header.set_decoration_layout(":minimize,maximize,close")
         self.set_titlebar(self.header)
 
+        # Always-visible CapsLock indicator in header; not part of collapsible controls.
+        self.caps_indicator_label = Gtk.Label(label="Caps: Off")
+        self.caps_indicator_label.set_name("caps-indicator")
+        self.caps_indicator_label.set_halign(Gtk.Align.START)
+        self.caps_indicator_label.set_valign(Gtk.Align.CENTER)
+        self.caps_indicator_label.set_hexpand(False)
+        self.header.pack_start(self.caps_indicator_label)
+
         self.settings_buttons: List[Gtk.Button] = []
         self._create_header_button("☰", self.toggle_controls)
         self._create_header_button("+", self.change_opacity, True)
@@ -311,15 +319,9 @@ class MutterBoard(Gtk.Window):
             self.theme_combobox.set_active(list(THEMES.keys()).index(self.theme_name) + 1)
         self.theme_combobox.set_name("combobox")
         self.theme_combobox.connect("changed", self.change_theme)
-        self.header.add(self.theme_combobox)
+        self.theme_combobox.set_hexpand(False)
+        self.header.pack_start(self.theme_combobox)
 
-        # Always-visible CapsLock indicator in header; not part of collapsible controls.
-        self.caps_indicator_label = Gtk.Label(label="Caps: Off")
-        self.caps_indicator_label.set_name("caps-indicator")
-        self.caps_indicator_label.set_halign(Gtk.Align.END)
-        self.caps_indicator_label.set_valign(Gtk.Align.CENTER)
-        self.caps_indicator_label.set_hexpand(False)
-        self.header.pack_end(self.caps_indicator_label)
 
     def _build_keyboard(self, parent: Gtk.Box) -> None:
         grid = Gtk.Grid()
@@ -388,7 +390,7 @@ class MutterBoard(Gtk.Window):
         self._update_caps_indicator()
         return False
 
-    def _schedule_capslock_sync(self, expected_previous: bool) -> None:
+    def _schedule_capslock_sync(self) -> None:
         if self.caps_sync_source is not None:
             GLib.source_remove(self.caps_sync_source)
             self.caps_sync_source = None
@@ -398,7 +400,7 @@ class MutterBoard(Gtk.Window):
         def _poll() -> bool:
             self._sync_capslock_from_system()
             attempts["count"] += 1
-            if self.capslock_on != expected_previous or attempts["count"] >= 12:
+            if attempts["count"] >= 12:
                 self.caps_sync_source = None
                 return False
             return True
@@ -413,7 +415,7 @@ class MutterBoard(Gtk.Window):
                 button.connect("clicked", callback)
             else:
                 button.connect("clicked", callback, callback_arg)
-        self.header.add(button)
+        self.header.pack_start(button)
         self.settings_buttons.append(button)
         return button
 
@@ -445,6 +447,10 @@ class MutterBoard(Gtk.Window):
             min-height: 46px;
             background-color: rgba({theme['key']}, 0.72);
         }}
+        #combobox,
+        #combobox box,
+        #combobox box.linked,
+        #combobox button,
         #combobox button.combo {{
             background-image: none;
             background-color: rgba({theme['key']}, 0.72);
@@ -453,6 +459,7 @@ class MutterBoard(Gtk.Window):
             min-width: 90px;
             border-radius: 8px;
         }}
+        #combobox arrow {{ color: {theme['text']}; }}
         headerbar button label, #combobox button.combo label {{
             color: {theme['text']};
             font-size: {max(self.font_size - 1, 12)}px;
@@ -548,12 +555,11 @@ class MutterBoard(Gtk.Window):
 
         if key_code == uinput.KEY_CAPSLOCK:
             self._flash_regular_key(widget)
-            # Optimistically flip local state for immediate visual response.
-            self.capslock_on = not self.capslock_on
-            self._update_caps_indicator()
             self.engine.tap_key(uinput.KEY_CAPSLOCK)
-            # Poll keymap state for a short period to avoid transient indicator flicker.
-            self._schedule_capslock_sync(not self.capslock_on)
+            # Keep indicator aligned with system state, especially when mixing
+            # physical keyboard and on-screen keyboard input.
+            self._sync_capslock_from_system()
+            self._schedule_capslock_sync()
             return
 
         if key_code in MODIFIER_KEYS:
