@@ -38,7 +38,7 @@ MutterBoard 使用 GTK3 构建界面，通过 `uinput` 注入真实按键事件�
   - 进入后 Space 按键会切换为 `◀ Space ▶` 并高亮边框/文字，便于识别当前模式。
   - 水平滑动触发 Left/Right，垂直滑动触发 Up/Down。
 - **CapsLock 状态同步**
-  - 从系统 keymap 同步 CapsLock 状态，并在按键右上角以 Overlay 绘制蓝色圆点（仅 show/hide，可见性不依赖标签文本改写）。
+  - 从系统 keymap 同步 CapsLock 状态，并采用与粘滞键一致的按键高亮样式。
 - **Shift 动态符号标签**
   - Shift 激活时，数字/符号键标签动态切换（如 `1 -> !`）。
 - **可定制界面**

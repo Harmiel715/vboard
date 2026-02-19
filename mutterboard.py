@@ -224,7 +224,6 @@ class MutterBoard(Gtk.Window):
         self.active_keys: Set[int] = set()
         self.space_button: Optional[Gtk.Button] = None
         self.space_button_default_label = "Space"
-        self.caps_dot: Optional[Gtk.Widget] = None
 
         self.space_long_press_ms = 300
         self.space_cursor_mode = False
@@ -262,8 +261,9 @@ class MutterBoard(Gtk.Window):
         self.set_resizable(True)
         self.set_keep_above(True)
         self.stick()
-        # Keep decorations (min/max/close) while still requesting an always-on-top utility window.
-        self.set_type_hint(Gdk.WindowTypeHint.UTILITY)
+        # Keep normal window type so minimize/maximize controls are consistently available.
+        self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
+        self.set_decorated(True)
         self.set_skip_taskbar_hint(False)
         self.set_skip_pager_hint(False)
         self.set_focus_on_map(False)
@@ -343,25 +343,7 @@ class MutterBoard(Gtk.Window):
                     button.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
                     button.connect("motion-notify-event", self.on_space_motion)
 
-                attach_widget: Gtk.Widget = button
-                if key_code == uinput.KEY_CAPSLOCK:
-                    overlay = Gtk.Overlay()
-                    overlay.add(button)
-                    dot = Gtk.DrawingArea()
-                    dot.set_name("caps-dot")
-                    dot.set_size_request(10, 10)
-                    dot.set_halign(Gtk.Align.END)
-                    dot.set_valign(Gtk.Align.START)
-                    dot.set_margin_top(6)
-                    dot.set_margin_end(6)
-                    dot.connect("draw", self._draw_caps_indicator)
-                    dot.hide()
-                    overlay.add_overlay(dot)
-                    overlay.get_style_context().add_class("key-overlay")
-                    self.caps_dot = dot
-                    attach_widget = overlay
-
-                grid.attach(attach_widget, col, row_index, width, 1)
+                grid.attach(button, col, row_index, width, 1)
                 col += width
 
                 if key_code in MODIFIER_KEYS:
@@ -458,9 +440,6 @@ class MutterBoard(Gtk.Window):
             margin: 0;
             padding: 0;
         }}
-        .key-overlay {{
-            background-color: transparent;
-        }}
         .key-button:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
         .key-button label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
         .key-button.pressed {{
@@ -475,11 +454,9 @@ class MutterBoard(Gtk.Window):
             color: rgba({theme['accent']}, 1.0);
             font-weight: 700;
         }}
-        #caps-dot {{
-            background-color: rgba({theme['accent']}, 1.0);
-            border-radius: 999px;
-            min-width: 10px;
-            min-height: 10px;
+        .key-button.caps-on {{
+            background-color: rgba({theme['accent']}, 0.28);
+            border-color: rgba({theme['accent']}, 1.0);
         }}
         """
         provider.load_from_data(css.encode("utf-8"))
@@ -509,30 +486,18 @@ class MutterBoard(Gtk.Window):
             self.apply_css()
 
     def _update_caps_indicator(self) -> None:
-        if self.caps_dot is None:
+        # Render CapsLock state using sticky-key style highlight for reliability.
+        caps_button = self.regular_buttons.get("CapsLock")
+        if caps_button is None:
             return
-        self.caps_dot.set_visible(self.capslock_on)
-        self.caps_dot.queue_draw()
-
-    def _draw_caps_indicator(self, area: Gtk.DrawingArea, cr) -> bool:
-        alloc = area.get_allocation()
-        radius = min(alloc.width, alloc.height) / 2
-        cr.set_source_rgba(0.28, 0.63, 1.0, 1.0)
-        cr.arc(alloc.width / 2, alloc.height / 2, radius, 0, 6.283185307179586)
-        cr.fill()
-        return False
-
-    def _draw_caps_indicator(self, area: Gtk.DrawingArea, cr) -> bool:
-        alloc = area.get_allocation()
-        radius = min(alloc.width, alloc.height) / 2
-        cr.set_source_rgba(0.28, 0.63, 1.0, 1.0)
-        cr.arc(alloc.width / 2, alloc.height / 2, radius, 0, 6.283185307179586)
-        cr.fill()
-        return False
+        style = caps_button.get_style_context()
+        if self.capslock_on:
+            style.add_class("caps-on")
+        else:
+            style.remove_class("caps-on")
 
     def on_button_press(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.add(key_code)
-        self._paint_pressed(widget, True)
 
         if key_code == uinput.KEY_CAPSLOCK:
             self.engine.tap_key(uinput.KEY_CAPSLOCK)
@@ -541,11 +506,13 @@ class MutterBoard(Gtk.Window):
             return
 
         if key_code in MODIFIER_KEYS:
+            self._paint_pressed(widget, True)
             self._on_modifier_press(key_code)
             self._update_shift_labels()
             return
 
         if key_code == uinput.KEY_SPACE:
+            self._paint_pressed(widget, True)
             self._begin_space_tracking()
             return
 
@@ -556,12 +523,14 @@ class MutterBoard(Gtk.Window):
         # Emit normal key immediately on press. This is more robust on environments
         # where touch is effectively single-pointer (common under XWayland), because
         # output no longer depends on receiving a second concurrent touch release.
+        self._flash_regular_key(widget)
         self.engine.tap_key(key_code)
         self._start_repeat(key_code)
 
     def on_button_release(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.discard(key_code)
-        self._paint_pressed(widget, False)
+        if key_code in MODIFIER_KEYS or key_code == uinput.KEY_SPACE:
+            self._paint_pressed(widget, False)
 
         if key_code == uinput.KEY_CAPSLOCK:
             return
@@ -671,6 +640,15 @@ class MutterBoard(Gtk.Window):
             style.add_class("pressed")
         else:
             style.remove_class("pressed")
+
+    def _flash_regular_key(self, button: Gtk.Button) -> None:
+        self._paint_pressed(button, True)
+
+        def _clear() -> bool:
+            self._paint_pressed(button, False)
+            return False
+
+        GLib.timeout_add(110, _clear)
 
     def _update_shift_labels(self) -> None:
         shift_active = any(self.modifiers[k].pressed or self.modifiers[k].latched for k in SHIFT_KEYS)

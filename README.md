@@ -34,7 +34,7 @@ Compared with simpler virtual keyboards, MutterBoard focuses on **modifier-key s
   - While active, the Space key switches to `◀ Space ▶` with a highlighted border/text style.
   - Slide horizontally for Left/Right; slide vertically for Up/Down navigation.
 - **CapsLock synchronization**
-  - CapsLock status is synchronized from system keymap and shown as a blue top-right dot rendered by overlay drawing (visibility toggled directly, no label text mutation).
+  - CapsLock status is synchronized from system keymap and rendered as a sticky-key style highlighted CapsLock key (no extra corner dot).
 - **Dynamic key labels with Shift**
   - Symbol keys update labels while Shift is active (e.g. `1 -> !`).
 - **Customizable UI**
