@@ -436,22 +436,22 @@ class MutterBoard(Gtk.Window):
             font-weight: 600;
         }}
         #grid {{ margin: 0; padding: 0; }}
-        .key-button {{
+        .key-button,
+        .key-button:hover,
+        .key-button:focus,
+        .key-button:checked,
+        .key-button:active,
+        .key-button:backdrop {{
             border-radius: 8px;
             border: 1px solid rgba({theme['key_border']}, 0.9);
             background-image: none;
             background-color: rgba({theme['key']}, 0.48);
+            box-shadow: none;
             min-height: 48px;
             margin: 0;
             padding: 0;
         }}
         .key-button label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
-        /* Disable hover/prelight color shifts: only click and sticky states should change visuals. */
-        .key-button:hover, .key-button:focus, .key-button:checked {{
-            background-color: rgba({theme['key']}, 0.48);
-            border-color: rgba({theme['key_border']}, 0.9);
-            box-shadow: none;
-        }}
         #caps-indicator {{
             color: {theme['text']};
             font-size: {max(self.font_size - 2, 11)}px;
@@ -459,7 +459,10 @@ class MutterBoard(Gtk.Window):
             padding: 0 8px;
         }}
         #caps-indicator.on {{ color: rgba({theme['accent']}, 1.0); }}
-        .key-button.pressed {{
+        .key-button.pressed,
+        .key-button.pressed:hover,
+        .key-button.pressed:focus,
+        .key-button.pressed:active {{
             background-color: rgba({theme['accent']}, 0.28);
             border-color: rgba({theme['accent']}, 1.0);
         }}
@@ -515,7 +518,9 @@ class MutterBoard(Gtk.Window):
         if key_code == uinput.KEY_CAPSLOCK:
             self._flash_regular_key(widget)
             self.engine.tap_key(uinput.KEY_CAPSLOCK)
-            self._sync_capslock_from_system()
+            # Update immediately so header indicator responds even if keymap state signal lags.
+            self.capslock_on = not self.capslock_on
+            self._update_caps_indicator()
             GLib.timeout_add(35, self._sync_capslock_from_system)
             return
 
