@@ -10,7 +10,7 @@ import uinput
 os.environ.setdefault("GDK_BACKEND", "x11")
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402  # Imported after gi.require_version / 在 gi.require_version 之后导入
 
 
 KEY_MAPPING: Dict[int, str] = {
@@ -83,6 +83,7 @@ KEY_MAPPING: Dict[int, str] = {
     uinput.KEY_END: "End",
 }
 
+# Reverse lookup for UI label -> linux key code / UI 标签到 Linux 键码的反向映射
 LABEL_TO_KEY = {label: code for code, label in KEY_MAPPING.items()}
 MODIFIER_KEYS = {
     uinput.KEY_LEFTSHIFT,
@@ -139,6 +140,7 @@ SYMBOL_LABELS = {
     "/": "?",
 }
 
+# Friendly config tokens accepted in settings.conf / settings.conf 中接受的简写别名
 CONFIG_TOKEN_ALIASES = {
     "SHIFT": "LEFTSHIFT",
     "CTRL": "LEFTCTRL",
@@ -188,7 +190,9 @@ class ModifierState:
 
 class KeyboardEngine:
     def __init__(self) -> None:
+        # Create one virtual input device with all supported keys / 创建包含全部支持键位的虚拟输入设备
         self.device = uinput.Device(list(KEY_MAPPING.keys()))
+        # Track currently held keys to avoid duplicate press/release / 跟踪当前按下键，避免重复按下或抬起
         self.down_keys: Set[int] = set()
 
     def set_key_state(self, key_code: int, pressed: bool) -> None:
@@ -212,12 +216,14 @@ class MutterBoard(Gtk.Window):
         self._configure_storage()
 
         self.engine = KeyboardEngine()
+        # Runtime key-state containers / 运行期按键状态容器
         self.modifiers: Dict[int, ModifierState] = {key: ModifierState() for key in MODIFIER_KEYS}
         self.modifier_buttons: Dict[int, Gtk.Button] = {}
         self.regular_buttons: Dict[str, Gtk.Button] = {}
         self.repeat_states: Dict[int, RepeatState] = {}
         self.active_keys: Set[int] = set()
         self.space_button: Optional[Gtk.Button] = None
+        self.caps_dot: Optional[Gtk.Widget] = None
 
         self.space_long_press_ms = 300
         self.space_cursor_mode = False
@@ -228,8 +234,10 @@ class MutterBoard(Gtk.Window):
         self.space_accum_x = 0.0
         self.space_accum_y = 0.0
 
+        # Double-Shift shortcut state / Shift 双击快捷键状态
         self.last_shift_tap_at = 0.0
         self.double_shift_timeout_ms = 380
+        self.double_shift_shortcut_enabled = True
         self.double_shift_shortcut = [uinput.KEY_LEFTSHIFT, uinput.KEY_SPACE]
         self.capslock_on = False
 
@@ -241,7 +249,8 @@ class MutterBoard(Gtk.Window):
 
         self._load_settings()
         self._build_ui()
-        self._update_caps_indicator()
+        self._setup_capslock_sync()
+        self._sync_capslock_from_system()
         self.apply_css()
 
         self.connect("configure-event", self.on_resize)
@@ -283,8 +292,6 @@ class MutterBoard(Gtk.Window):
         self._create_header_button("A+", self.change_font_size, 1)
         self._create_header_button("A-", self.change_font_size, -1)
         self.font_btn = self._create_header_button(f"{self.font_size}px")
-        self.caps_btn = self._create_header_button("Caps: Off")
-        self.caps_btn.set_sensitive(False)
 
         self.theme_combobox = Gtk.ComboBoxText()
         self.theme_combobox.append_text("Theme")
@@ -306,6 +313,7 @@ class MutterBoard(Gtk.Window):
         grid.set_column_homogeneous(True)
         parent.pack_start(grid, True, True, 0)
 
+        # Normalize every row width to keep alignment / 归一化每一行宽度以保持对齐
         row_widths = [sum(KEY_WIDTHS.get(label, 2) for label in row) for row in DEFAULT_LAYOUT]
         target_width = max(row_widths)
 
@@ -321,11 +329,28 @@ class MutterBoard(Gtk.Window):
                 button.connect("released", self.on_button_release, key_code)
 
                 if key_code == uinput.KEY_SPACE:
+                    # Space key also receives pointer motion for cursor mode / Space 键额外接收指针移动用于光标模式
                     self.space_button = button
                     button.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
                     button.connect("motion-notify-event", self.on_space_motion)
 
-                grid.attach(button, col, row_index, width, 1)
+                attach_widget: Gtk.Widget = button
+                if key_code == uinput.KEY_CAPSLOCK:
+                    overlay = Gtk.Overlay()
+                    overlay.add(button)
+                    dot = Gtk.DrawingArea()
+                    dot.set_name("caps-dot")
+                    dot.set_size_request(10, 10)
+                    dot.set_halign(Gtk.Align.END)
+                    dot.set_valign(Gtk.Align.START)
+                    dot.set_margin_top(6)
+                    dot.set_margin_end(6)
+                    dot.set_no_show_all(True)
+                    overlay.add_overlay(dot)
+                    self.caps_dot = dot
+                    attach_widget = overlay
+
+                grid.attach(attach_widget, col, row_index, width, 1)
                 col += width
 
                 if key_code in MODIFIER_KEYS:
@@ -342,6 +367,21 @@ class MutterBoard(Gtk.Window):
             idx += 1
             deficit -= 1
         return widths
+
+    def _setup_capslock_sync(self) -> None:
+        self.keymap = Gdk.Keymap.get_default()
+        if self.keymap is not None:
+            self.keymap.connect("state-changed", self._on_keymap_state_changed)
+
+    def _on_keymap_state_changed(self, _keymap: Gdk.Keymap) -> None:
+        self._sync_capslock_from_system()
+
+    def _sync_capslock_from_system(self) -> bool:
+        if getattr(self, "keymap", None) is None:
+            return False
+        self.capslock_on = self.keymap.get_caps_lock_state()
+        self._update_caps_indicator()
+        return False
 
     def _create_header_button(self, label: str, callback=None, callback_arg=None) -> Gtk.Button:
         button = Gtk.Button(label=label)
@@ -413,9 +453,11 @@ class MutterBoard(Gtk.Window):
             background-color: rgba({theme['accent']}, 0.35);
             border-color: rgba({theme['accent']}, 1.0);
         }}
-        #headbar-button.caps-on label {{
-            color: rgba({theme['accent']}, 1.0);
-            font-weight: 700;
+        #caps-dot {{
+            background-color: rgba({theme['accent']}, 1.0);
+            border-radius: 999px;
+            min-width: 10px;
+            min-height: 10px;
         }}
         """
         provider.load_from_data(css.encode("utf-8"))
@@ -423,7 +465,7 @@ class MutterBoard(Gtk.Window):
 
     def toggle_controls(self, _button=None) -> None:
         for button in self.settings_buttons:
-            if button.get_label() not in {"☰", "Caps: On", "Caps: Off"}:
+            if button.get_label() != "☰":
                 button.set_visible(not button.get_visible())
         self.theme_combobox.set_visible(not self.theme_combobox.get_visible())
 
@@ -445,21 +487,21 @@ class MutterBoard(Gtk.Window):
             self.apply_css()
 
     def _update_caps_indicator(self) -> None:
-        self.caps_btn.set_label("Caps: On" if self.capslock_on else "Caps: Off")
-        style = self.caps_btn.get_style_context()
+        if self.caps_dot is None:
+            return
         if self.capslock_on:
-            style.add_class("caps-on")
+            self.caps_dot.show()
         else:
-            style.remove_class("caps-on")
+            self.caps_dot.hide()
 
     def on_button_press(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.add(key_code)
         self._paint_pressed(widget, True)
 
         if key_code == uinput.KEY_CAPSLOCK:
-            self.capslock_on = not self.capslock_on
             self.engine.tap_key(uinput.KEY_CAPSLOCK)
-            self._update_caps_indicator()
+            self._sync_capslock_from_system()
+            GLib.timeout_add(35, self._sync_capslock_from_system)
             return
 
         if key_code in MODIFIER_KEYS:
@@ -543,6 +585,10 @@ class MutterBoard(Gtk.Window):
                 self._paint_modifier(key_code, False)
 
     def _handle_shift_double_tap(self) -> None:
+        if not self.double_shift_shortcut_enabled:
+            self.last_shift_tap_at = 0.0
+            return
+
         now = time.monotonic()
         elapsed_ms = (now - self.last_shift_tap_at) * 1000
         if self.last_shift_tap_at > 0 and elapsed_ms <= self.double_shift_timeout_ms:
@@ -600,6 +646,7 @@ class MutterBoard(Gtk.Window):
             return
         self._cancel_repeat(key_code)
         state = RepeatState()
+        # Delay before first repeat, then switch to fixed repeat tick / 首次连发前延迟，然后进入固定节拍连发
         state.delay_source = GLib.timeout_add(420, self._repeat_delay_done, key_code)
         self.repeat_states[key_code] = state
 
@@ -628,6 +675,7 @@ class MutterBoard(Gtk.Window):
             GLib.source_remove(state.repeat_source)
 
     def _begin_space_tracking(self) -> None:
+        # Long-press Space enters cursor mode, short tap sends space / 长按 Space 进入光标模式，短按发送空格
         self._cancel_space_long_press()
         self.space_cursor_mode = False
         self.space_accum_x = 0.0
@@ -684,6 +732,7 @@ class MutterBoard(Gtk.Window):
         return True
 
     def _emit_cursor_moves(self, step_threshold: float) -> None:
+        # Use dominant axis to reduce accidental diagonal noise / 使用主导轴减少对角误触
         if abs(self.space_accum_x) >= abs(self.space_accum_y):
             steps = int(abs(self.space_accum_x) / step_threshold)
             if steps > 0:
@@ -702,6 +751,7 @@ class MutterBoard(Gtk.Window):
                 self.space_accum_x = 0.0
 
     def _parse_shortcut(self, raw: str) -> List[int]:
+        # Parse comma-separated tokens from config into uinput key codes / 将配置中的逗号分隔字符串解析为 uinput 键码
         result: List[int] = []
         for part in raw.split(","):
             token = part.strip().upper().replace("KEY_", "")
@@ -739,9 +789,12 @@ class MutterBoard(Gtk.Window):
             self.theme_name = self.config.get("DEFAULT", "theme", fallback=self.theme_name)
             self.opacity = self.config.get("DEFAULT", "opacity", fallback=self.opacity)
             self.font_size = self.config.getint("DEFAULT", "font_size", fallback=self.font_size)
-            self.capslock_on = self.config.getboolean("DEFAULT", "capslock_on", fallback=self.capslock_on)
             self.width = self.config.getint("DEFAULT", "width", fallback=0)
             self.height = self.config.getint("DEFAULT", "height", fallback=0)
+            # Keep feature enabled by default unless explicitly disabled in config / 默认启用，除非配置中显式关闭
+            self.double_shift_shortcut_enabled = self.config.getboolean(
+                "DEFAULT", "double_shift_shortcut_enabled", fallback=self.double_shift_shortcut_enabled
+            )
             shortcut = self.config.get("DEFAULT", "double_shift_shortcut", fallback="LEFTSHIFT,SPACE")
             self.double_shift_shortcut = self._parse_shortcut(shortcut)
         except configparser.Error:
@@ -759,9 +812,9 @@ class MutterBoard(Gtk.Window):
             "theme": self.theme_name,
             "opacity": self.opacity,
             "font_size": str(self.font_size),
-            "capslock_on": str(self.capslock_on),
             "width": str(self.width),
             "height": str(self.height),
+            "double_shift_shortcut_enabled": str(self.double_shift_shortcut_enabled).lower(),
             "double_shift_shortcut": self._shortcut_to_config(self.double_shift_shortcut),
         }
         try:
