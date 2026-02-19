@@ -78,9 +78,8 @@ double_shift_shortcut = LEFTSHIFT,SPACE
 
 ## 特性说明
 - 主题：Dark / Light / Midnight
-- 字号：支持更大范围调整（标题栏 A+ / A-）
+- 字号：支持大范围调整（标题栏 A+ / A-）
 - CapsLock 状态可视化：`Caps: On / Off`
-- 菜单收起时仍保留 CapsLock 状态显示
 - Shift 激活时符号键动态显示（如 `1 -> !`）
 
 ## 致谢
