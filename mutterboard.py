@@ -10,7 +10,7 @@ import uinput
 os.environ.setdefault("GDK_BACKEND", "x11")
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402  # Imported after gi.require_version / 在 gi.require_version 之后导入
 
 
 KEY_MAPPING: Dict[int, str] = {
@@ -83,6 +83,7 @@ KEY_MAPPING: Dict[int, str] = {
     uinput.KEY_END: "End",
 }
 
+# Reverse lookup for UI label -> linux key code / UI 标签到 Linux 键码的反向映射
 LABEL_TO_KEY = {label: code for code, label in KEY_MAPPING.items()}
 MODIFIER_KEYS = {
     uinput.KEY_LEFTSHIFT,
@@ -139,6 +140,7 @@ SYMBOL_LABELS = {
     "/": "?",
 }
 
+# Friendly config tokens accepted in settings.conf / settings.conf 中接受的简写别名
 CONFIG_TOKEN_ALIASES = {
     "SHIFT": "LEFTSHIFT",
     "CTRL": "LEFTCTRL",
@@ -188,7 +190,9 @@ class ModifierState:
 
 class KeyboardEngine:
     def __init__(self) -> None:
+        # Create one virtual input device with all supported keys / 创建包含全部支持键位的虚拟输入设备
         self.device = uinput.Device(list(KEY_MAPPING.keys()))
+        # Track currently held keys to avoid duplicate press/release / 跟踪当前按下键，避免重复按下或抬起
         self.down_keys: Set[int] = set()
 
     def set_key_state(self, key_code: int, pressed: bool) -> None:
@@ -212,6 +216,7 @@ class MutterBoard(Gtk.Window):
         self._configure_storage()
 
         self.engine = KeyboardEngine()
+        # Runtime key-state containers / 运行期按键状态容器
         self.modifiers: Dict[int, ModifierState] = {key: ModifierState() for key in MODIFIER_KEYS}
         self.modifier_buttons: Dict[int, Gtk.Button] = {}
         self.regular_buttons: Dict[str, Gtk.Button] = {}
@@ -229,8 +234,10 @@ class MutterBoard(Gtk.Window):
         self.space_accum_x = 0.0
         self.space_accum_y = 0.0
 
+        # Double-Shift shortcut state / Shift 双击快捷键状态
         self.last_shift_tap_at = 0.0
         self.double_shift_timeout_ms = 380
+        self.double_shift_shortcut_enabled = True
         self.double_shift_shortcut = [uinput.KEY_LEFTSHIFT, uinput.KEY_SPACE]
         self.capslock_on = False
 
@@ -306,6 +313,7 @@ class MutterBoard(Gtk.Window):
         grid.set_column_homogeneous(True)
         parent.pack_start(grid, True, True, 0)
 
+        # Normalize every row width to keep alignment / 归一化每一行宽度以保持对齐
         row_widths = [sum(KEY_WIDTHS.get(label, 2) for label in row) for row in DEFAULT_LAYOUT]
         target_width = max(row_widths)
 
@@ -321,6 +329,7 @@ class MutterBoard(Gtk.Window):
                 button.connect("released", self.on_button_release, key_code)
 
                 if key_code == uinput.KEY_SPACE:
+                    # Space key also receives pointer motion for cursor mode / Space 键额外接收指针移动用于光标模式
                     self.space_button = button
                     button.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
                     button.connect("motion-notify-event", self.on_space_motion)
@@ -576,6 +585,10 @@ class MutterBoard(Gtk.Window):
                 self._paint_modifier(key_code, False)
 
     def _handle_shift_double_tap(self) -> None:
+        if not self.double_shift_shortcut_enabled:
+            self.last_shift_tap_at = 0.0
+            return
+
         now = time.monotonic()
         elapsed_ms = (now - self.last_shift_tap_at) * 1000
         if self.last_shift_tap_at > 0 and elapsed_ms <= self.double_shift_timeout_ms:
@@ -633,6 +646,7 @@ class MutterBoard(Gtk.Window):
             return
         self._cancel_repeat(key_code)
         state = RepeatState()
+        # Delay before first repeat, then switch to fixed repeat tick / 首次连发前延迟，然后进入固定节拍连发
         state.delay_source = GLib.timeout_add(420, self._repeat_delay_done, key_code)
         self.repeat_states[key_code] = state
 
@@ -661,6 +675,7 @@ class MutterBoard(Gtk.Window):
             GLib.source_remove(state.repeat_source)
 
     def _begin_space_tracking(self) -> None:
+        # Long-press Space enters cursor mode, short tap sends space / 长按 Space 进入光标模式，短按发送空格
         self._cancel_space_long_press()
         self.space_cursor_mode = False
         self.space_accum_x = 0.0
@@ -717,6 +732,7 @@ class MutterBoard(Gtk.Window):
         return True
 
     def _emit_cursor_moves(self, step_threshold: float) -> None:
+        # Use dominant axis to reduce accidental diagonal noise / 使用主导轴减少对角误触
         if abs(self.space_accum_x) >= abs(self.space_accum_y):
             steps = int(abs(self.space_accum_x) / step_threshold)
             if steps > 0:
@@ -735,6 +751,7 @@ class MutterBoard(Gtk.Window):
                 self.space_accum_x = 0.0
 
     def _parse_shortcut(self, raw: str) -> List[int]:
+        # Parse comma-separated tokens from config into uinput key codes / 将配置中的逗号分隔字符串解析为 uinput 键码
         result: List[int] = []
         for part in raw.split(","):
             token = part.strip().upper().replace("KEY_", "")
@@ -774,6 +791,10 @@ class MutterBoard(Gtk.Window):
             self.font_size = self.config.getint("DEFAULT", "font_size", fallback=self.font_size)
             self.width = self.config.getint("DEFAULT", "width", fallback=0)
             self.height = self.config.getint("DEFAULT", "height", fallback=0)
+            # Keep feature enabled by default unless explicitly disabled in config / 默认启用，除非配置中显式关闭
+            self.double_shift_shortcut_enabled = self.config.getboolean(
+                "DEFAULT", "double_shift_shortcut_enabled", fallback=self.double_shift_shortcut_enabled
+            )
             shortcut = self.config.get("DEFAULT", "double_shift_shortcut", fallback="LEFTSHIFT,SPACE")
             self.double_shift_shortcut = self._parse_shortcut(shortcut)
         except configparser.Error:
@@ -793,6 +814,7 @@ class MutterBoard(Gtk.Window):
             "font_size": str(self.font_size),
             "width": str(self.width),
             "height": str(self.height),
+            "double_shift_shortcut_enabled": str(self.double_shift_shortcut_enabled).lower(),
             "double_shift_shortcut": self._shortcut_to_config(self.double_shift_shortcut),
         }
         try:
