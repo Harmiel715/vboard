@@ -5,7 +5,7 @@ MutterBoard 是一个面向 Linux 的屏幕键盘项目，目标是尽可能接�
 - 组合键可传递到焦点窗口（如 `Ctrl+C` / `Ctrl+V`）；
 - 支持 Shift 双击快捷键、长按连发、CapsLock 状态提示。
 
-> 兼容范围保持与原脚本一致：当前仍以非 wlroots 场景为主。
+> 兼容范围：以非 wlroots 场景为主。
 
 ## 运行环境
 - Linux
@@ -56,12 +56,6 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ## 运行
 ```bash
 python3 mutterboard.py
-```
-
-兼容入口：
-```bash
-python3 vboard.py
-```
 
 ## 配置
 配置文件：`~/.config/mutterboard/settings.conf`

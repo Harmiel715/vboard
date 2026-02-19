@@ -334,41 +334,41 @@ class MutterBoard(Gtk.Window):
         css = f"""
         #toplevel {{ background-color: rgba({theme['bg']}, {self.opacity}); }}
         #root {{ background-color: rgba({theme['bg']}, {self.opacity}); margin: 0; padding: 0; }}
-        headerbar {
+        headerbar {{
             background-color: rgba({theme['bg']}, {self.opacity});
             border: 0;
             box-shadow: none;
             min-height: 54px;
-        }
-        headerbar button {
+        }}
+        headerbar button {{
             background-image: none;
             background-color: rgba({theme['key']}, 0.95);
             border: 1px solid rgba({theme['key_border']}, 0.95);
             min-height: 46px;
             min-width: 52px;
             border-radius: 8px;
-        }
-        headerbar button:hover { border-color: rgba({theme['accent']}, 1.0); }
-        headerbar .titlebutton {
+        }}
+        headerbar button:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
+        headerbar .titlebutton {{
             min-width: 56px;
             min-height: 46px;
             background-color: rgba({theme['key']}, 0.95);
-        }
-        #combobox button.combo {
+        }}
+        #combobox button.combo {{
             background-image: none;
             background-color: rgba({theme['key']}, 0.95);
             border: 1px solid rgba({theme['key_border']}, 0.95);
             min-height: 46px;
             min-width: 90px;
             border-radius: 8px;
-        }
-        headerbar button label, #combobox button.combo label {
+        }}
+        headerbar button label, #combobox button.combo label {{
             color: {theme['text']};
             font-size: {max(self.font_size - 1, 12)}px;
             font-weight: 600;
-        }
-        #grid { margin: 0; padding: 0; }
-        #key {
+        }}
+        #grid {{ margin: 0; padding: 0; }}
+        #key {{
             border-radius: 8px;
             border: 1px solid rgba({theme['key_border']}, 0.9);
             background-image: none;
@@ -376,13 +376,13 @@ class MutterBoard(Gtk.Window):
             min-height: 48px;
             margin: 0;
             padding: 0;
-        }
-        #key:hover { border-color: rgba({theme['accent']}, 1.0); }
-        #key label { color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }
-        #key.pressed {
+        }}
+        #key:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
+        #key label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
+        #key.pressed {{
             background-color: rgba({theme['accent']}, 0.35);
             border-color: rgba({theme['accent']}, 1.0);
-        }
+        }}
         #headbar-button.caps-on label {{
             color: rgba({theme['accent']}, 1.0);
             font-weight: 700;
