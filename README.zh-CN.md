@@ -14,7 +14,7 @@ MutterBoard 使用 GTK3 构建界面，通过 `uinput` 注入真实按键事件�
 
 - 修饰键语义准确性
 - 组合键可用性
-- 系统状态同步（例如 CapsLock 指示）
+- 状态同步（例如 CapsLock 指示）
 
 ---
 
@@ -22,11 +22,11 @@ MutterBoard 使用 GTK3 构建界面，通过 `uinput` 注入真实按键事件�
 
 - **接近硬件语义的修饰键行为**
   - 支持 Shift/Ctrl/Alt/Super 的按下与释放语义。
-  - 支持修饰键一次性锁定（latch）与自动释放逻辑。
+  - 支持修饰键一次性锁定（latch）与自动释放逻辑（例如轻触 Shift 一次即可锁定）。
 - **组合键友好**
   - 常见快捷键可透传到当前焦点窗口（如 `Ctrl+C`、`Ctrl+V`）。
 - **Shift 双击快捷键触发**
-  - 双击 Shift 可触发可配置快捷键（默认：`LEFTSHIFT,SPACE`）。
+  - 双击任一 Shift 键可触发可配置快捷键（默认：`LEFTSHIFT,SPACE`），可通过配置文件启用/关闭。
 - **快速连续点击稳定性**
   - 普通键改为“按下即发送（tap-first）”，在 XWayland 等单指针触摸栈下也能稳定处理快速连续点击。
 - **全局顶层窗口**
@@ -37,23 +37,25 @@ MutterBoard 使用 GTK3 构建界面，通过 `uinput` 注入真实按键事件�
   - 长按 Space 进入光标模式。
   - 进入后 Space 按键会切换为 `◀ Space ▶` 并高亮边框/文字，便于识别当前模式。
   - 水平滑动触发 Left/Right，垂直滑动触发 Up/Down。
-- **CapsLock 状态同步**
-  - CapsLock 键本体仅保留普通点击反馈（不做持续高亮），并在标题栏提供常驻 `Caps: On/Off` 指示；即使折叠控制按钮也不会隐藏。
+- **CapsLock 处理**
+  - CapsLock 键切换内部状态，发送按键事件，并更新顶部栏指示器。
+  - 顶部栏指示器采用按钮样式，与其他控制按钮外观一致；CapsLock 开启时文字变为强调色。
+  - CapsLock 状态会保存并在下次启动时恢复。
 - **Shift 动态符号标签**
-  - Shift 激活时，数字/符号键标签动态切换（如 `1 -> !`）。
+  - Shift 激活时，数字/符号键标签动态切换（如 `1` → `!`）。
 - **可定制界面**
   - 主题：`Dark`、`Light`、`Midnight`
-  - 降低按键背景透明叠加强度，让 50% 左右透明度时后方内容更易辨认。
+  - 降低按键背景透明度，让半透明时后方内容更易辨认。
   - 鼠标悬停/预选不会改变按键背景透明度，仅点击反馈和粘滞键状态会改变按键视觉。
   - 标题栏支持透明度与字号调节。
 - **设置持久化**
-  - 自动保存主题、透明度、字号、窗口宽高、双击 Shift 快捷键。
+  - 自动保存主题、透明度、字号、窗口尺寸、双击 Shift 快捷键、CapsLock 状态。
 
 ---
 
 ## 截图
 
-<img width="2414" height="849" alt="图片" src="https://github.com/user-attachments/assets/45d70608-855d-4919-b325-4c95ecbaeb11" />
+<img width="2414" height="849" alt="MutterBoard 截图" src="https://github.com/user-attachments/assets/45d70608-855d-4919-b325-4c95ecbaeb11" />
 
 ---
 
@@ -104,7 +106,7 @@ python3 mutterboard.py
 
 ```bash
 mkdir -p ~/.local/share/applications/
-cat > ~/.local/share/applications/mutterboard.desktop <<EOF2
+cat > ~/.local/share/applications/mutterboard.desktop <<EOF
 [Desktop Entry]
 Exec=bash -c 'python3 /path/to/mutterboard.py'
 Icon=preferences-desktop-keyboard
@@ -113,7 +115,7 @@ Terminal=false
 Type=Application
 Categories=Utility;
 NoDisplay=false
-EOF2
+EOF
 chmod +x ~/.local/share/applications/mutterboard.desktop
 ```
 
@@ -138,6 +140,7 @@ width = 0
 height = 0
 double_shift_shortcut_enabled = true
 double_shift_shortcut = LEFTSHIFT,SPACE
+capslock_on = false
 ```
 
 字段说明：
@@ -147,7 +150,8 @@ double_shift_shortcut = LEFTSHIFT,SPACE
 - `font_size`：程序会限制范围（约 `10` 到 `48`）
 - `width` / `height`：窗口大小（退出时持久化）
 - `double_shift_shortcut_enabled`：是否启用 Shift 双击快捷键触发（默认 `true`）
-- `double_shift_shortcut`：双击 Shift 触发的组合键（逗号分隔）
+- `double_shift_shortcut`：双击 Shift 触发的组合键（逗号分隔，例如 `LEFTSHIFT,SPACE`）
+- `capslock_on`：内部 CapsLock 状态（自动保存）
 
 ---
 
@@ -203,3 +207,4 @@ double_shift_shortcut = LEFTSHIFT,SPACE
 ## 许可证
 
 本项目采用 **GNU LGPL v2.1** 许可证，详见 [LICENSE](./LICENSE)。
+```
