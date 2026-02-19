@@ -46,11 +46,7 @@ MutterBoard 使用 GTK3 构建界面，通过 `uinput` 注入真实按键事件�
 
 ## 截图
 
-> 下面是占位符，请替换为你们提供的实际截图。
-
-- `![主界面](./docs/screenshots/main-ui.png)`
-- `![主题切换](./docs/screenshots/themes.png)`
-- `![CapsLock 指示](./docs/screenshots/caps-indicator.png)`
+<img width="2414" height="849" alt="图片" src="https://github.com/user-attachments/assets/45d70608-855d-4919-b325-4c95ecbaeb11" />
 
 ---
 
@@ -145,8 +141,6 @@ double_shift_shortcut = LEFTSHIFT,SPACE
 - `width` / `height`：窗口大小（退出时持久化）
 - `double_shift_shortcut_enabled`：是否启用 Shift 双击快捷键触发（默认 `true`）
 - `double_shift_shortcut`：双击 Shift 触发的组合键（逗号分隔）
-
-> `double_shift_shortcut_enabled` 用于控制 Shift 双击快捷键触发功能是否启用。
 
 ---
 
