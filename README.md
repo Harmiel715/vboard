@@ -42,7 +42,7 @@ Compared with simpler virtual keyboards, MutterBoard focuses on **modifier-key s
 
 ## Screenshots
 
-
+<img width="2414" height="849" alt="图片" src="https://github.com/user-attachments/assets/45d70608-855d-4919-b325-4c95ecbaeb11" />
 
 ---
 
