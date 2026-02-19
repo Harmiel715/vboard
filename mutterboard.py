@@ -224,6 +224,7 @@ class MutterBoard(Gtk.Window):
         self.active_keys: Set[int] = set()
         self.space_button: Optional[Gtk.Button] = None
         self.space_button_default_label = "Space"
+        self.caps_indicator_label: Optional[Gtk.Label] = None
 
         self.space_long_press_ms = 300
         self.space_cursor_mode = False
@@ -310,6 +311,11 @@ class MutterBoard(Gtk.Window):
         self.theme_combobox.set_name("combobox")
         self.theme_combobox.connect("changed", self.change_theme)
         self.header.add(self.theme_combobox)
+
+        # Always-visible CapsLock indicator in header; not part of collapsible controls.
+        self.caps_indicator_label = Gtk.Label(label="Caps: Off")
+        self.caps_indicator_label.set_name("caps-indicator")
+        self.header.pack_end(self.caps_indicator_label)
 
     def _build_keyboard(self, parent: Gtk.Box) -> None:
         grid = Gtk.Grid()
@@ -411,7 +417,6 @@ class MutterBoard(Gtk.Window):
             min-width: 52px;
             border-radius: 8px;
         }}
-        headerbar button:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
         headerbar .titlebutton {{
             min-width: 56px;
             min-height: 46px;
@@ -440,8 +445,20 @@ class MutterBoard(Gtk.Window):
             margin: 0;
             padding: 0;
         }}
-        .key-button:hover {{ border-color: rgba({theme['accent']}, 1.0); }}
         .key-button label {{ color: {theme['text']}; font-weight: 600; font-size: {self.font_size}px; }}
+        /* Disable hover/prelight color shifts: only click and sticky states should change visuals. */
+        .key-button:hover, .key-button:focus, .key-button:checked {{
+            background-color: rgba({theme['key']}, 0.48);
+            border-color: rgba({theme['key_border']}, 0.9);
+            box-shadow: none;
+        }}
+        #caps-indicator {{
+            color: {theme['text']};
+            font-size: {max(self.font_size - 2, 11)}px;
+            font-weight: 700;
+            padding: 0 8px;
+        }}
+        #caps-indicator.on {{ color: rgba({theme['accent']}, 1.0); }}
         .key-button.pressed {{
             background-color: rgba({theme['accent']}, 0.28);
             border-color: rgba({theme['accent']}, 1.0);
@@ -453,10 +470,6 @@ class MutterBoard(Gtk.Window):
         .key-button.cursor-mode label {{
             color: rgba({theme['accent']}, 1.0);
             font-weight: 700;
-        }}
-        .key-button.caps-on {{
-            background-color: rgba({theme['accent']}, 0.28);
-            border-color: rgba({theme['accent']}, 1.0);
         }}
         """
         provider.load_from_data(css.encode("utf-8"))
@@ -486,20 +499,21 @@ class MutterBoard(Gtk.Window):
             self.apply_css()
 
     def _update_caps_indicator(self) -> None:
-        # Render CapsLock state using sticky-key style highlight for reliability.
-        caps_button = self.regular_buttons.get("CapsLock")
-        if caps_button is None:
+        indicator = self.caps_indicator_label
+        if indicator is None:
             return
-        style = caps_button.get_style_context()
+        indicator.set_text("Caps: On" if self.capslock_on else "Caps: Off")
+        style = indicator.get_style_context()
         if self.capslock_on:
-            style.add_class("caps-on")
+            style.add_class("on")
         else:
-            style.remove_class("caps-on")
+            style.remove_class("on")
 
     def on_button_press(self, widget: Gtk.Button, key_code: int) -> None:
         self.active_keys.add(key_code)
 
         if key_code == uinput.KEY_CAPSLOCK:
+            self._flash_regular_key(widget)
             self.engine.tap_key(uinput.KEY_CAPSLOCK)
             self._sync_capslock_from_system()
             GLib.timeout_add(35, self._sync_capslock_from_system)

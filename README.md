@@ -34,12 +34,13 @@ Compared with simpler virtual keyboards, MutterBoard focuses on **modifier-key s
   - While active, the Space key switches to `◀ Space ▶` with a highlighted border/text style.
   - Slide horizontally for Left/Right; slide vertically for Up/Down navigation.
 - **CapsLock synchronization**
-  - CapsLock status is synchronized from system keymap and rendered as a sticky-key style highlighted CapsLock key (no extra corner dot).
+  - CapsLock key itself only shows normal tap feedback (no persistent key highlight), while an always-visible header indicator (`Caps: On/Off`) reflects system state even when controls are collapsed.
 - **Dynamic key labels with Shift**
   - Symbol keys update labels while Shift is active (e.g. `1 -> !`).
 - **Customizable UI**
   - Themes: `Dark`, `Light`, `Midnight`
   - Reduced key alpha for better readability of background text/windows when using translucent themes.
+  - Hover/prelight does not alter key background opacity; only click feedback and sticky-key states change key visuals.
   - Adjustable opacity and font size from header controls.
 - **Persistent settings**
   - Saves theme, opacity, font size, window width/height, and double-shift shortcut.
