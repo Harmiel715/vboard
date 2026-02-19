@@ -42,11 +42,7 @@ Compared with simpler virtual keyboards, MutterBoard focuses on **modifier-key s
 
 ## Screenshots
 
-> Replace placeholders below with your real images.
 
-- `![Main UI](./docs/screenshots/main-ui.png)`
-- `![Theme Switching](./docs/screenshots/themes.png)`
-- `![CapsLock Indicator](./docs/screenshots/caps-indicator.png)`
 
 ---
 
@@ -141,8 +137,6 @@ Settings notes:
 - `width` / `height`: persisted window size
 - `double_shift_shortcut_enabled`: enable/disable double-Shift shortcut trigger (`true` by default)
 - `double_shift_shortcut`: comma-separated key tokens (e.g. `LEFTSHIFT,SPACE`)
-
-> `double_shift_shortcut_enabled` controls whether the double-Shift shortcut trigger is active.
 
 ---
 
